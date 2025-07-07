@@ -40,22 +40,11 @@ export default function EmailAuth({ onSuccess }: EmailAuthProps) {
     checkSession()
 
     // Listen for auth state changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event: any, session: any) => {
       if (event === 'SIGNED_IN' && session?.user) {
-        // Create or update profile
-        const { error } = await supabase
-          .from('profiles')
-          .upsert({
-            id: session.user.id,
-            email: session.user.email!,
-            updated_at: new Date().toISOString(),
-          })
-          .select()
-          .single()
-
-        if (!error) {
-          onSuccess()
-        }
+        // Profile creation is handled in the parent component
+        // Just trigger onSuccess to reload the profile
+        onSuccess()
       }
     })
 

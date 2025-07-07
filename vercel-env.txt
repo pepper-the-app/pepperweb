@@ -1,0 +1,23 @@
+VERCEL DEPLOYMENT ENVIRONMENT VARIABLES
+======================================
+
+Add these environment variables in your Vercel project settings:
+
+1. NEXT_PUBLIC_SUPABASE_URL
+   Value: Your Supabase project URL (e.g., https://xxxxx.supabase.co)
+   
+2. NEXT_PUBLIC_SUPABASE_ANON_KEY
+   Value: Your Supabase anon/public key
+
+Where to find these values:
+1. Go to https://supabase.com/dashboard
+2. Select your project
+3. Go to Settings → API
+4. Copy the "Project URL" and "anon public" key
+
+In Vercel:
+1. Go to your project dashboard
+2. Settings → Environment Variables
+3. Add both variables
+4. Enable for: Production, Preview, Development
+5. Save and redeploy 

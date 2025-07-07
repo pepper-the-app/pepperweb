@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import PhoneInput from 'react-phone-number-input'
 import 'react-phone-number-input/style.css'
@@ -14,15 +14,42 @@ interface PhoneSetupProps {
 }
 
 export default function PhoneSetup({ onComplete }: PhoneSetupProps) {
-  const [phone, setPhone] = useState('')
+  const [phone, setPhone] = useState('+1')
   const [loading, setLoading] = useState(false)
   const { user } = useStore()
   const supabase = createClient()
+  const phoneInputRef = useRef<any>(null)
+
+  // Handle paste events to properly format US numbers
+  useEffect(() => {
+    const handlePaste = (e: ClipboardEvent) => {
+      const pastedText = e.clipboardData?.getData('text')
+      if (pastedText) {
+        e.preventDefault()
+        const cleanNumber = pastedText.replace(/\D/g, '')
+        
+        // If it's a 10-digit number, assume it's US
+        if (cleanNumber.length === 10) {
+          setPhone('+1' + cleanNumber)
+        } else if (cleanNumber.length === 11 && cleanNumber.startsWith('1')) {
+          // If it's 11 digits starting with 1, it's already a US number with country code
+          setPhone('+' + cleanNumber)
+        } else if (!pastedText.startsWith('+')) {
+          // If no + sign, add US prefix
+          setPhone('+1' + cleanNumber)
+        }
+      }
+    }
+
+    // Add paste event listener to the document
+    document.addEventListener('paste', handlePaste)
+    return () => document.removeEventListener('paste', handlePaste)
+  }, [])
 
   const handleSavePhone = async (e: React.FormEvent) => {
     e.preventDefault()
     
-    if (!phone) {
+    if (!phone || phone === '+1') {
       toast.error('Please enter your phone number')
       return
     }
@@ -80,12 +107,30 @@ export default function PhoneSetup({ onComplete }: PhoneSetupProps) {
             Your Phone Number
           </label>
           <PhoneInput
+            ref={phoneInputRef}
             international
             defaultCountry="US"
+            country="US"
             value={phone}
-            onChange={(value) => setPhone(value || '')}
+            onChange={(value) => {
+              // Handle US numbers specially to preserve +1
+              if (value && value.startsWith('+1')) {
+                setPhone(value)
+              } else if (value && !value.startsWith('+') && value.length >= 10) {
+                // If someone pastes a US number without +1, add it
+                setPhone('+1' + value.replace(/\D/g, ''))
+              } else {
+                setPhone(value || '+1')
+              }
+            }}
             className="phone-input"
             disabled={loading}
+            countryCallingCodeEditable={false}
+            withCountryCallingCode={true}
+            numberInputProps={{
+              className: 'PhoneInputInput',
+              autoComplete: 'tel',
+            }}
           />
           <p className="text-xs text-gray-500 dark:text-gray-400">
             This is how your contacts will find you
@@ -94,7 +139,7 @@ export default function PhoneSetup({ onComplete }: PhoneSetupProps) {
 
         <button
           type="submit"
-          disabled={loading || !phone}
+          disabled={loading || !phone || phone === '+1'}
           className="w-full py-3 bg-gradient-to-r from-pink-500 to-purple-600 text-white rounded-lg font-medium hover:from-pink-600 hover:to-purple-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
         >
           {loading ? (

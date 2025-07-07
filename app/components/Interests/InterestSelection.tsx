@@ -36,7 +36,7 @@ export default function InterestSelection({ onComplete }: InterestSelectionProps
       if (error) throw error
 
       if (data) {
-        setInterests(data.map(item => item.target_phone_hash))
+        setInterests(data.map((item: any) => item.target_phone_hash))
       }
     } catch (error: any) {
       toast.error('Failed to load interests')

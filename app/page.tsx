@@ -2,6 +2,9 @@
 
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
+
+// Force dynamic rendering to avoid pre-rendering issues with Supabase client
+export const dynamic = 'force-dynamic'
 import { useStore } from '@/lib/store/useStore'
 import { Toaster } from 'react-hot-toast'
 import EmailAuth from './components/Auth/EmailAuth'
@@ -11,6 +14,7 @@ import InterestSelection from './components/Interests/InterestSelection'
 import MatchesDisplay from './components/Matches/MatchesDisplay'
 import { LogOut, ChevronLeft } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
+import { toast } from 'react-hot-toast'
 
 type AppStep = 'auth' | 'phone' | 'contacts' | 'interests' | 'matches'
 
@@ -23,7 +27,7 @@ export default function Home() {
   useEffect(() => {
     checkUser()
     
-    const { data: authListener } = supabase.auth.onAuthStateChange(async (event, session) => {
+    const { data: authListener } = supabase.auth.onAuthStateChange(async (event: any, session: any) => {
       if (event === 'SIGNED_IN' && session?.user) {
         await loadUserProfile(session.user.id)
       } else if (event === 'SIGNED_OUT') {
@@ -43,41 +47,54 @@ export default function Home() {
       
       if (authUser) {
         await loadUserProfile(authUser.id)
+      } else {
+        setCurrentStep('auth')
       }
     } catch (error) {
       console.error('Error checking user:', error)
+      setCurrentStep('auth')
     } finally {
       setLoading(false)
     }
   }
 
   const loadUserProfile = async (userId: string) => {
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', userId)
-      .single()
+    try {
+      const { data: profile, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', userId)
+        .single()
 
-    if (profile) {
-      setUser(profile)
-      
-      // Check if user has phone number
-      if (!profile.phone_number) {
-        setCurrentStep('phone')
+      if (error) {
+        console.error('Error loading profile:', error)
+        // Profile doesn't exist yet, stay on auth
         return
       }
-      
-      // Load contacts to determine step
-      const { data: userContacts } = await supabase
-        .from('contacts')
-        .select('*')
-        .eq('user_id', userId)
 
-      if (userContacts && userContacts.length > 0) {
-        setCurrentStep('matches')
-      } else {
-        setCurrentStep('contacts')
+      if (profile) {
+        setUser(profile)
+        
+        // Check if user has phone number
+        if (!profile.phone_number) {
+          setCurrentStep('phone')
+          return
+        }
+        
+        // Load contacts to determine step
+        const { data: userContacts } = await supabase
+          .from('contacts')
+          .select('*')
+          .eq('user_id', userId)
+
+        if (userContacts && userContacts.length > 0) {
+          setCurrentStep('matches')
+        } else {
+          setCurrentStep('contacts')
+        }
       }
+    } catch (error) {
+      console.error('Error in loadUserProfile:', error)
     }
   }
 
@@ -89,6 +106,30 @@ export default function Home() {
     if (currentStep === 'contacts') setCurrentStep('phone')
     else if (currentStep === 'interests') setCurrentStep('contacts')
     else if (currentStep === 'matches') setCurrentStep('interests')
+  }
+
+  const handleAuthSuccess = async () => {
+    // Reload user profile after successful auth
+    const { data: { user: authUser } } = await supabase.auth.getUser()
+    if (authUser) {
+      await loadUserProfile(authUser.id)
+    }
+  }
+
+  const handlePhoneComplete = async () => {
+    // Reload profile to get updated phone number
+    if (user) {
+      const { data: updatedProfile } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', user.id)
+        .single()
+      
+      if (updatedProfile) {
+        setUser(updatedProfile)
+        setCurrentStep('contacts')
+      }
+    }
   }
 
   if (loading) {
@@ -144,11 +185,11 @@ export default function Home() {
             transition={{ duration: 0.3 }}
           >
             {currentStep === 'auth' && (
-              <EmailAuth onSuccess={() => setCurrentStep('phone')} />
+              <EmailAuth onSuccess={handleAuthSuccess} />
             )}
             
-            {currentStep === 'phone' && (
-              <PhoneSetup onComplete={() => setCurrentStep('contacts')} />
+            {currentStep === 'phone' && user && (
+              <PhoneSetup onComplete={handlePhoneComplete} />
             )}
             
             {currentStep === 'contacts' && (
