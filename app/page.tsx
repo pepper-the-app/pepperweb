@@ -16,6 +16,7 @@ import { LogOut, ChevronLeft } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { toast } from 'react-hot-toast'
 import ResetButton from './components/Debug/ResetButton'
+import SkipButton from './components/Debug/SkipButton'
 
 type AppStep = 'auth' | 'phone' | 'contacts' | 'interests' | 'matches'
 
@@ -33,10 +34,17 @@ export default function Home() {
     const { data: authListener } = supabase.auth.onAuthStateChange(async (event: any, session: any) => {
       console.log('Auth state changed:', event, session?.user?.email)
       if (event === 'SIGNED_IN' && session?.user) {
-        await loadUserProfile(session.user.id)
+        setLoading(true)
+        try {
+          await loadUserProfile(session.user.id)
+        } finally {
+          setLoading(false)
+          setAuthChecked(true)
+        }
       } else if (event === 'SIGNED_OUT') {
         clearAll()
         setCurrentStep('auth')
+        setLoading(false)
       }
     })
 
@@ -60,7 +68,19 @@ export default function Home() {
       }
       
       if (authUser) {
-        await loadUserProfile(authUser.id)
+        // Add timeout to prevent hanging
+        const profilePromise = loadUserProfile(authUser.id)
+        const timeoutPromise = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Profile load timeout')), 5000)
+        )
+        
+        try {
+          await Promise.race([profilePromise, timeoutPromise])
+        } catch (timeoutError) {
+          console.error('Profile loading timed out:', timeoutError)
+          // Continue anyway - user is authenticated
+          setCurrentStep('phone')
+        }
       } else {
         setCurrentStep('auth')
       }
@@ -77,39 +97,49 @@ export default function Home() {
   const loadUserProfile = async (userId: string) => {
     console.log('loadUserProfile called for:', userId)
     try {
+      console.log('Querying profiles table...')
+      
       const { data: profile, error } = await supabase
         .from('profiles')
         .select('*')
         .eq('id', userId)
-        .single()
+        .maybeSingle() // Use maybeSingle instead of single to avoid errors if no row exists
+      
+      console.log('Profile query completed:', profile, error)
 
-      console.log('Profile loaded:', profile, error)
-
-      if (error) {
+      if (error && error.code !== 'PGRST116') {
         console.error('Error loading profile:', error)
-        
-        // If profile doesn't exist, create it
-        if (error.code === 'PGRST116') {
-          const { data: { user } } = await supabase.auth.getUser()
-          if (user?.email) {
-            const { data: newProfile, error: createError } = await supabase
-              .from('profiles')
-              .insert({
-                id: user.id,
-                email: user.email,
-                updated_at: new Date().toISOString(),
-              })
-              .select()
-              .single()
-            
-            if (!createError && newProfile) {
-              setUser(newProfile)
-              setCurrentStep('phone')
-              return
-            }
+        return
+      }
+      
+      // If profile doesn't exist, create it
+      if (!profile) {
+        console.log('Profile does not exist, creating...')
+        const { data: { user } } = await supabase.auth.getUser()
+        if (user?.email) {
+          const { data: newProfile, error: createError } = await supabase
+            .from('profiles')
+            .insert({
+              id: user.id,
+              email: user.email,
+              updated_at: new Date().toISOString(),
+            })
+            .select()
+            .single()
+          
+          console.log('Profile creation result:', newProfile, createError)
+          
+          if (!createError && newProfile) {
+            setUser(newProfile)
+            setCurrentStep('phone')
+            return
+          } else if (createError) {
+            console.error('Failed to create profile:', createError)
+            // Still set to phone step since user is authenticated
+            setCurrentStep('phone')
+            return
           }
         }
-        return
       }
 
       if (profile) {
@@ -150,12 +180,30 @@ export default function Home() {
     else if (currentStep === 'matches') setCurrentStep('interests')
   }
 
-  const handleAuthSuccess = async () => {
+    const handleAuthSuccess = async () => {
     console.log('handleAuthSuccess called')
-    // Reload user profile after successful auth
-    const { data: { user: authUser } } = await supabase.auth.getUser()
-    if (authUser) {
-      await loadUserProfile(authUser.id)
+    setLoading(true)
+    try {
+      // Reload user profile after successful auth
+      const { data: { user: authUser } } = await supabase.auth.getUser()
+      if (authUser) {
+        await loadUserProfile(authUser.id)
+        
+        // If we still don't have a user in state, create a minimal one
+        if (!user) {
+          setUser({
+            id: authUser.id,
+            email: authUser.email!,
+            phone_number: null,
+            display_name: null,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          })
+          setCurrentStep('phone')
+        }
+      }
+    } finally {
+      setLoading(false)
     }
   }
 
@@ -178,6 +226,8 @@ export default function Home() {
   if (loading && !authChecked) {
     return (
       <div className="min-h-screen flex items-center justify-center">
+        <ResetButton />
+        <SkipButton />
         <div className="animate-pulse text-2xl font-bold bg-gradient-to-r from-pink-500 to-purple-600 bg-clip-text text-transparent">
           Loading...
         </div>
