@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "PepperWeb",
-  description: "A modern web application built with Next.js, TypeScript, and Tailwind CSS",
+  title: "Pepper - Find Your Mutual Matches",
+  description: "Discover which of your contacts are romantically interested in you too. Private, secure, and only shows mutual matches.",
 };
 
 export default function RootLayout({
