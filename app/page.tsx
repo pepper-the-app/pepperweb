@@ -15,19 +15,23 @@ import MatchesDisplay from './components/Matches/MatchesDisplay'
 import { LogOut, ChevronLeft } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { toast } from 'react-hot-toast'
+import ResetButton from './components/Debug/ResetButton'
 
 type AppStep = 'auth' | 'phone' | 'contacts' | 'interests' | 'matches'
 
 export default function Home() {
   const [currentStep, setCurrentStep] = useState<AppStep>('auth')
   const [loading, setLoading] = useState(true)
+  const [authChecked, setAuthChecked] = useState(false)
   const { user, setUser, contacts, clearAll } = useStore()
   const supabase = createClient()
 
   useEffect(() => {
+    console.log('App mounted, checking user...')
     checkUser()
     
     const { data: authListener } = supabase.auth.onAuthStateChange(async (event: any, session: any) => {
+      console.log('Auth state changed:', event, session?.user?.email)
       if (event === 'SIGNED_IN' && session?.user) {
         await loadUserProfile(session.user.id)
       } else if (event === 'SIGNED_OUT') {
@@ -42,8 +46,18 @@ export default function Home() {
   }, [])
 
   const checkUser = async () => {
+    console.log('checkUser called')
     try {
-      const { data: { user: authUser } } = await supabase.auth.getUser()
+      const { data: { user: authUser }, error } = await supabase.auth.getUser()
+      console.log('Auth user check:', authUser?.email, error)
+      
+      if (error) {
+        console.error('Error getting user:', error)
+        setCurrentStep('auth')
+        setAuthChecked(true)
+        setLoading(false)
+        return
+      }
       
       if (authUser) {
         await loadUserProfile(authUser.id)
@@ -54,11 +68,14 @@ export default function Home() {
       console.error('Error checking user:', error)
       setCurrentStep('auth')
     } finally {
+      setAuthChecked(true)
       setLoading(false)
+      console.log('Loading set to false')
     }
   }
 
   const loadUserProfile = async (userId: string) => {
+    console.log('loadUserProfile called for:', userId)
     try {
       const { data: profile, error } = await supabase
         .from('profiles')
@@ -66,9 +83,32 @@ export default function Home() {
         .eq('id', userId)
         .single()
 
+      console.log('Profile loaded:', profile, error)
+
       if (error) {
         console.error('Error loading profile:', error)
-        // Profile doesn't exist yet, stay on auth
+        
+        // If profile doesn't exist, create it
+        if (error.code === 'PGRST116') {
+          const { data: { user } } = await supabase.auth.getUser()
+          if (user?.email) {
+            const { data: newProfile, error: createError } = await supabase
+              .from('profiles')
+              .insert({
+                id: user.id,
+                email: user.email,
+                updated_at: new Date().toISOString(),
+              })
+              .select()
+              .single()
+            
+            if (!createError && newProfile) {
+              setUser(newProfile)
+              setCurrentStep('phone')
+              return
+            }
+          }
+        }
         return
       }
 
@@ -100,6 +140,8 @@ export default function Home() {
 
   const handleSignOut = async () => {
     await supabase.auth.signOut()
+    clearAll()
+    setCurrentStep('auth')
   }
 
   const handleBack = () => {
@@ -109,6 +151,7 @@ export default function Home() {
   }
 
   const handleAuthSuccess = async () => {
+    console.log('handleAuthSuccess called')
     // Reload user profile after successful auth
     const { data: { user: authUser } } = await supabase.auth.getUser()
     if (authUser) {
@@ -132,7 +175,7 @@ export default function Home() {
     }
   }
 
-  if (loading) {
+  if (loading && !authChecked) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="animate-pulse text-2xl font-bold bg-gradient-to-r from-pink-500 to-purple-600 bg-clip-text text-transparent">
@@ -145,6 +188,7 @@ export default function Home() {
   return (
     <main className="min-h-screen bg-gradient-to-br from-purple-50 to-pink-50 dark:from-gray-900 dark:to-gray-800">
       <Toaster position="top-center" />
+      <ResetButton />
       
       {/* Header */}
       {user && (
